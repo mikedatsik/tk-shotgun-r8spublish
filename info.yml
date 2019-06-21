@@ -1,0 +1,124 @@
+# Copyright (c) 2017 Shotgun Software Inc.
+# 
+# CONFIDENTIAL AND PROPRIETARY
+# 
+# This work is provided "AS IS" and subject to the Shotgun Pipeline Toolkit 
+# Source Code License included in this distribution package. See LICENSE.
+# By accessing, using, copying or modifying this work you indicate your 
+# agreement to the Shotgun Pipeline Toolkit Source Code License. All rights 
+# not expressly granted therein are reserved by Shotgun Software Inc.
+
+
+configuration:
+    display_name:
+        type: str
+        default_value: Publish
+        description: Specify the name that should be used in menus and the main
+                     publish dialog
+
+    display_action_name:
+        type: str
+        default_value: Publish
+        description: "Shorter version of display_name setting, used as button name."
+
+    collector:
+        type: hook
+        description: "Logic for extracting items from the scene and from dropped files."
+        default_value: "{self}/collector.py"
+
+    collector_settings:
+        type: dict
+        description: "Collector-specific configuration settings."
+        default_value: {}
+
+    post_phase:
+        type: hook
+        description:
+          "A hook that defines logic to be executed after each phase of publish
+          execution including validation, publish, and finalization. This allows
+          for very specific curation and customization of the publish tree
+          during a publish session. Serializing the publish tree to disk after
+          validation, for example is possible via this hook."
+        default_value: "{self}/post_phase.py"
+
+    path_info:
+        type: hook
+        description:
+          "This hook contains methods that are used during publishing to infer
+           information from file paths. This includes version and frame number
+           identification, publish display name, image sequence paths, etc."
+        default_value: "{self}/path_info.py"
+
+    publish_plugins:
+        type: list
+        description: "List of publish plugins."
+        values:
+            type: dict
+            items:
+                name:
+                    type: str
+                hook:
+                    type: hook
+                settings:
+                    type: dict
+        allows_empty: True
+        default_value:
+            # Default hook 1: publish any file to SG
+            - name: Publish to Shotgun
+              hook: "{self}/publish_file.py"
+              settings: {}
+            # Default hook 2: upload known, reviewable types to SG
+            - name: Upload for review
+              hook: "{self}/upload_version.py"
+              settings: {}
+
+    help_url:
+        type: str
+        description:
+          "The url to open when the 'help' button is clicked in the publisher.
+           The url should typically lead to a page that outlines the studio's
+           publishing workflow. If no url is provided, the help button will
+           not be displayed."
+        default_value: ""
+
+    validate_on_publish:
+        type: bool
+        default_value: true
+        description:
+          "If true (default), clicking the Publish button will execute the
+           validation logic before publishing. If false, validation will be
+           skipped. If false, and no validation has been manually triggered,
+           a popup, confirmation dialog will be displayed before proceeding
+           with the publish logic. NOTE: This is an advanced option. Setting
+           this to 'false' will most likely break the shipped toolkit
+           integrations which assume validation is always run before
+           publishing."
+
+    enable_manual_load:
+        type: bool
+        default_value: true
+        description:
+          "If true (default, normal operation), the user can interact with the
+           main dialog to drop files or folders. The user can also use the browse
+           buttons to select files or folders. When false, the feature basically
+           disable the user ability to add anything to the project."
+# the Shotgun fields that this app needs in order to operate correctly
+requires_shotgun_fields:
+
+# More verbose description of this item 
+display_name: "R8S Publish"
+description: "Provides UI and functionality to publish files to Shotgun with Templates."
+
+# Required minimum versions for this item to run
+requires_shotgun_version:
+requires_core_version: "v0.18.148"
+requires_engine_version:
+
+# this app works in all engines - it does not contain 
+# any host application specific commands
+supported_engines: 
+
+# the frameworks required to run this app
+frameworks:
+    - {"name": "tk-framework-shotgunutils", "version": "v5.x.x"}
+    - {"name": "tk-framework-qtwidgets", "version": "v2.x.x"}
