@@ -71,6 +71,11 @@ configuration:
             - name: Upload for review
               hook: "{self}/upload_version.py"
               settings: {}
+              
+            # # Default hook 3: publish any file to SG with copying
+            # - name: Copy to Server Location
+            #   hook: "{self}/upload_version.py"
+            #   settings: {}
 
     help_url:
         type: str

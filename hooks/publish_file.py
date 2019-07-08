@@ -9,14 +9,47 @@
 # not expressly granted therein are reserved by Shotgun Software Inc.
 
 import os
+import re
+import glob
 import pprint
 import traceback
 
 import sgtk
 from sgtk.util.filesystem import copy_file, ensure_folder_exists
 
+from sgtk.platform.qt import QtCore, QtGui
+
 HookBaseClass = sgtk.get_hook_baseclass()
 
+
+
+class CustomNameWidget(QtGui.QWidget):
+
+    def __init__(self, parent, description_widget=None):
+        QtGui.QWidget.__init__(self, parent)
+
+        layout = QtGui.QVBoxLayout(self)
+
+        ## Export Name Label
+        self.export_label = QtGui.QLabel(self)
+        self.export_label.setText("Export Name")
+        layout.addWidget(self.export_label)
+
+        ## Line edit
+        self.editLine = QtGui.QLineEdit(self)
+        layout.addWidget(self.editLine)
+
+        ## Version Label
+        self.version_label = QtGui.QLabel(self)
+        self.version_label.setText("Publish Version")
+        layout.addWidget(self.version_label)
+
+        self.version_number = QtGui.QSpinBox(self)
+        self.version_number.setMinimum(0)
+        self.version_number.setMaximum(100)
+        layout.addWidget(self.version_number)
+
+        self.setLayout(layout)
 
 class BasicFilePublishPlugin(HookBaseClass):
     """
@@ -105,6 +138,34 @@ class BasicFilePublishPlugin(HookBaseClass):
     ############################################################################
     # standard publish plugin properties
 
+    def create_settings_widget(self, parent):
+        """
+        Creates a QT widget, parented below the given parent object, to
+        provide viewing and editing capabilities for the given settings.
+
+        :param parent: QWidget to parent the widget under
+        :return: QWidget with an editor for the given setting or None if no custom widget is desired.
+        """
+        return CustomNameWidget(
+            parent,
+            description_widget=super(BasicFilePublishPlugin, self).create_settings_widget(parent)
+        )
+
+    def get_ui_settings(self, widget):
+
+        settings = {}
+        settings["Export Name"] = str(widget.editLine.text())
+        settings["Publish Version"] = widget.version_number.value()
+        return settings
+
+    def set_ui_settings(self, widget, tasks_settings):
+
+        if len(tasks_settings) > 1:
+            raise NotImplementedError
+
+        widget.editLine.setText(tasks_settings[0]["Export Name"])
+        widget.version_number.setValue(tasks_settings[0]["Publish Version"])
+
     @property
     def icon(self):
         """
@@ -123,7 +184,7 @@ class BasicFilePublishPlugin(HookBaseClass):
         """
         One line display name describing the plugin
         """
-        return "Publish to Shotgun"
+        return "Publish with Template"
 
     @property
     def description(self):
@@ -183,18 +244,21 @@ class BasicFilePublishPlugin(HookBaseClass):
             "File Types": {
                 "type": "list",
                 "default": [
-                    ["Alembic Cache", "abc"],
-                    ["3dsmax Scene", "max"],
-                    ["NukeStudio Project", "hrox"],
-                    ["Houdini Scene", "hip", "hipnc"],
-                    ["Maya Scene", "ma", "mb"],
-                    ["Motion Builder FBX", "fbx"],
-                    ["Nuke Script", "nk"],
-                    ["Photoshop Image", "psd", "psb"],
-                    ["Rendered Image", "dpx", "exr"],
-                    ["Texture", "tiff", "tx", "tga", "dds"],
-                    ["Image", "jpeg", "jpg", "png"],
-                    ["Movie", "mov", "mp4"],
+                    ["Alembic Cache", "elements", "abc"],
+                    ["3dsmax Scene", "3dsmax", "max"],
+                    ["NukeStudio Project", "nukestudio", "hrox"],
+                    ["Houdini Scene", "houdini", "hip", "hipnc"],
+                    ["Maya Scene", "maya", "ma", "mb"],
+                    ["Cinema Project File", "cinema", "c4d"],
+                    ["Premier Project", "premier", "prproj"],
+                    ["Fusion Composition", "fusion", "comp"],
+                    ["Motion Builder FBX", "elements", "fbx"],
+                    ["Nuke Script", "nuke", "nk"],
+                    ["Photoshop Image", "photoshop", "psd", "psb"],
+                    ["Rendered Image", "images", "dpx", "exr"],
+                    ["Texture", "elements", "tiff", "tx", "tga", "dds"],
+                    ["Image", "images", "jpeg", "jpg", "png"],
+                    ["Movie", "elements", "mov", "mp4"],
                 ],
                 "description": (
                     "List of file types to include. Each entry in the list "
@@ -202,6 +266,16 @@ class BasicFilePublishPlugin(HookBaseClass):
                     "published file type and subsequent entries are file "
                     "extensions that should be associated."
                 )
+            },
+            "Export Name": {
+                "type": "str",
+                "default": "standalone",
+                "description": "Export name setting."
+            },
+            "Publish Version": {
+                "type": "int",
+                "default": 1,
+                "description": "Publish version number."
             },
         }
 
@@ -247,6 +321,9 @@ class BasicFilePublishPlugin(HookBaseClass):
 
         path = item.properties.path
 
+        publish_version = self.get_publish_version(settings, item)
+        settings.get('Publish Version').value = publish_version
+
         # log the accepted file and display a button to reveal it in the fs
         self.logger.info(
             "File publisher plugin accepted: %s" % (path,),
@@ -276,7 +353,7 @@ class BasicFilePublishPlugin(HookBaseClass):
 
         publisher = self.parent
         path = item.properties.get("path")
-
+        
         # ---- determine the information required to validate
 
         # We allow the information to be pre-populated by the collector or a
@@ -297,6 +374,13 @@ class BasicFilePublishPlugin(HookBaseClass):
             publish_name,
             filters=["sg_status_list", "is_not", None]
         )
+
+        if not item.context.entity:
+            error_msg = (
+                "You Need to Link Publish element to Shot or Asset"
+            )
+            self.logger.error(error_msg)
+            raise Exception(error_msg)
 
         if publishes:
 
@@ -351,6 +435,53 @@ class BasicFilePublishPlugin(HookBaseClass):
         """
 
         publisher = self.parent
+        path = item.properties.get("path")
+
+        path_entity = publisher.tank.context_from_path(path).entity
+        isSequence = 'sequence' if 'images' in self.get_publish_type(settings, item)[1] else 'scene'
+        entity_type = item.context.entity.get('type')
+
+        if not cmp(path_entity, item.context.entity):
+            self.logger.info('@@@ R8S Custom @@@ This files already in right place, no need to copying.')
+        else:
+            if 'Shot' in entity_type:
+                standalone_template = publisher.sgtk.templates["shot_standalone_{}_location".format(isSequence)]
+            elif 'Asset' in entity_type:
+                standalone_template = publisher.sgtk.templates["asset_standalone_{}_location".format(isSequence)]
+          
+            
+            fields = item.context.as_template_fields(standalone_template)
+            fields['extension'] = publisher.util.get_file_path_components(path)['extension']
+            fields['name'] = settings.get('Export Name').value
+            fields['sna_engine'] = self.get_publish_type(settings, item)[1]
+            fields['version'] = int(settings.get('Publish Version').value)
+
+            publish_out = standalone_template.apply_fields(fields)
+
+            publish_folder = os.path.dirname(publish_out)
+            ensure_folder_exists(publish_folder)
+
+            try:
+                match = re.search(r'%(\d+)d', path)
+                if match:
+                    for in_frame in glob.glob(path.replace(match.group(0), '*')):
+                        out_frame = publish_out % int(in_frame.replace(path.split(match.group(0))[0], '').split(".")[0])
+                        if not os.path.exists(out_frame):
+                            copy_file(in_frame, out_frame)
+                else:
+                    copy_file(path, publish_out)
+
+            except Exception:
+                raise Exception(
+                    "Failed to copy sequence from '%s' to '%s'.\n%s" %
+                    (path, publish_folder, traceback.format_exc())
+                )
+            
+            self.logger.debug(
+                "@@@ R8S Custom @@@ This files needs copying "
+                "from '%s' to '%s' before publish." % (path, publish_out))
+            
+            item.properties['path'] = publish_out
 
         # ---- determine the information required to publish
 
@@ -358,7 +489,7 @@ class BasicFilePublishPlugin(HookBaseClass):
         # base class plugin. They may have more information than is available
         # here such as custom type or template settings.
 
-        publish_type = self.get_publish_type(settings, item)
+        publish_type = self.get_publish_type(settings, item)[0]
         publish_name = self.get_publish_name(settings, item)
         publish_version = self.get_publish_version(settings, item)
         publish_path = self.get_publish_path(settings, item)
@@ -477,8 +608,9 @@ class BasicFilePublishPlugin(HookBaseClass):
 
         # publish type explicitly set or defined on the item
         publish_type = item.get_property("publish_type")
+        publish_engine = 'elements'
         if publish_type:
-            return publish_type
+            return publish_type, publish_engine
 
         # fall back to the path info hook logic
         publisher = self.parent
@@ -497,11 +629,12 @@ class BasicFilePublishPlugin(HookBaseClass):
             for type_def in settings["File Types"].value:
 
                 publish_type = type_def[0]
-                file_extensions = type_def[1:]
+                publish_engine = type_def[1]
+                file_extensions = type_def[2:]
 
                 if extension in file_extensions:
                     # found a matching type in settings. use it!
-                    return publish_type
+                    return publish_type, publish_engine
 
         # --- no pre-defined publish type found...
 
@@ -512,7 +645,7 @@ class BasicFilePublishPlugin(HookBaseClass):
             # no extension, assume it is a folder
             publish_type = "Folder"
 
-        return publish_type
+        return publish_type, publish_engine
 
     def get_publish_path(self, settings, item):
         """

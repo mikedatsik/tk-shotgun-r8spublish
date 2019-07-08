@@ -14,6 +14,9 @@ import sgtk
 import traceback
 
 
+sys.path.append(os.path.join(os.path.dirname(__file__), "python"))
+import fileseq
+
 logger = sgtk.platform.get_logger(__name__)
 
 
@@ -34,6 +37,7 @@ class R8SPublish(sgtk.platform.Application):
         # the manager class provides the interface for publishing. We store a
         # reference to it to enable the create_publish_manager method exposed on
         # the application itself
+
         self._manager_class = tk_multi_publish2.PublishManager
 
         # make the util methods available via the app instance

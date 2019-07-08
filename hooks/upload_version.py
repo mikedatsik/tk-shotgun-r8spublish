@@ -88,7 +88,7 @@ class UploadVersionPlugin(HookBaseClass):
         return {
             "File Extensions": {
                 "type": "str",
-                "default": "jpeg, jpg, png, mov, mp4",
+                "default": "jpeg, exr, jpg, png, mov, mp4",
                 "description": "File Extensions of files to include"
             },
             "Upload": {
@@ -115,7 +115,7 @@ class UploadVersionPlugin(HookBaseClass):
         """
 
         # we use "video" since that's the mimetype category.
-        return ["file.image", "file.video"]
+        return ["file.image", "file.video", "file.image.sequence"]
 
     def accept(self, settings, item):
         """
@@ -157,6 +157,9 @@ class UploadVersionPlugin(HookBaseClass):
 
         self.logger.debug("Valid extensions: %s" % valid_extensions)
 
+        if 'file.image.sequence' in item.type:
+            return {"accepted": True, "checked": False}
+
         if extension in valid_extensions:
             # log the accepted file and display a button to reveal it in the fs
             self.logger.info(
@@ -190,6 +193,7 @@ class UploadVersionPlugin(HookBaseClass):
 
         :returns: True if item is valid, False otherwise.
         """
+
         return True
 
     def publish(self, settings, item):
@@ -204,6 +208,11 @@ class UploadVersionPlugin(HookBaseClass):
 
         publisher = self.parent
         path = item.properties["path"]
+        path_to_frames = item.properties["path"]
+
+        if 'file.image.sequence' in item.type:
+            seq_data = self.__render_movie_from_sequence(path.encode('utf-8'))
+            path = seq_data.get('path')
 
         # allow the publish name to be supplied via the item properties. this is
         # useful for collectors that have access to templates and can determine
@@ -232,6 +241,10 @@ class UploadVersionPlugin(HookBaseClass):
         if "sg_publish_data" in item.properties:
             publish_data = item.properties["sg_publish_data"]
             version_data["published_files"] = [publish_data]
+
+        if 'file.image.sequence' in item.type:
+            version_data["sg_first_frame"] = seq_data.get('first_frame')
+            version_data["sg_path_to_frames"] = path_to_frames
 
         if settings["Link Local File"].value:
             version_data["sg_path_to_movie"] = path
@@ -321,3 +334,57 @@ class UploadVersionPlugin(HookBaseClass):
             return item.context.project
         else:
             return None
+
+    def __render_movie_from_sequence(self, inFile):
+        import fileseq
+        from draft import Draft
+
+        codec = "H264"
+        quality = 80
+
+        lut = Draft.LUT.CreateRec709()
+
+        fs = fileseq.findSequencesOnDisk(inFile)[0]
+
+        output_path = os.path.join(fs.dirname(), "{}.mov".format(fs.basename()[:-1]))
+
+        if not os.path.exists(output_path):
+            firstFrame = fs.frame(fs.start())
+            firstFrame = Draft.Image.ReadFromFile( firstFrame )
+
+            check_beauty = False
+            if firstFrame.HasChannel( 'Beauty.blue' ):
+                channels = {'Beauty.blue': 'B', 'Beauty.green': 'G', 'Beauty.red': 'R'}
+                check_beauty = True
+
+            inputWidth = firstFrame.width
+            inputHeight = firstFrame.height
+
+            encoder = Draft.VideoEncoder( output_path, width=inputWidth, height=inputHeight, quality=quality, codec=codec )
+
+
+            progressCounter = 0
+            for currFrame in range(fs.start(), fs.end()):
+                
+                currFile = fs.frame(currFrame)
+                frame = Draft.Image.ReadFromFile( currFile )
+
+                if check_beauty:
+                    imgLayer = Draft.Image.CreateImage( frame.width, frame.height, channels.keys())
+                    imgLayer.Copy( frame, channels=channels.keys())
+                    for ch in channels:
+                        imgLayer.RenameChannel(ch, channels[ch])
+                else:
+                    imgLayer = frame
+
+                lut.Apply( imgLayer )
+                
+                encoder.EncodeNextFrame( imgLayer )
+
+                progressCounter = progressCounter + 1
+                progress = progressCounter * 100 / (fs.end() - fs.start())
+                print( "Progress: %i%%" % progress )
+
+            encoder.FinalizeEncoding()
+
+        return {'path': output_path, 'first_frame': fs.start()}

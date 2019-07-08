@@ -109,6 +109,21 @@ class BasicSceneCollector(HookBaseClass):
                     "icon": self._get_icon_path("nuke.png"),
                     "item_type": "file.nuke",
                 },
+                "Cinema Project File": {
+                    "extensions": ["c4d"],
+                    "icon": self._get_icon_path("cinema.png"),
+                    "item_type": "file.cinema",
+                },
+                "Premier Project": {
+                    "extensions": ["prproj"],
+                    "icon": self._get_icon_path("premier.png"),
+                    "item_type": "file.premier",
+                },
+                "Fusion Composition": {
+                    "extensions": ["comp"],
+                    "icon": self._get_icon_path("fusion.png"),
+                    "item_type": "file.fusion",
+                },                
                 "Photoshop Image": {
                     "extensions": ["psd", "psb"],
                     "icon": self._get_icon_path("photoshop.png"),
@@ -175,6 +190,8 @@ class BasicSceneCollector(HookBaseClass):
         """
 
         # handle files and folders differently
+        publisher = self.parent
+
         if os.path.isdir(path):
             self._collect_folder(parent_item, path)
             return None
