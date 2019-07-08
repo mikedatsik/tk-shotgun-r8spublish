@@ -360,8 +360,9 @@ class BasicFilePublishPlugin(HookBaseClass):
         # base class plugin. They may have more information than is available
         # here such as custom type or template settings.
 
-        publish_path = self.get_publish_path(settings, item)
-        publish_name = self.get_publish_name(settings, item)
+        publish_info = self._get_publish_path(settings, item)
+        publish_name = publish_info[0]
+        publish_path = publish_info[1]
 
         # ---- check for conflicting publishes of this path with a status
 
@@ -437,62 +438,44 @@ class BasicFilePublishPlugin(HookBaseClass):
         publisher = self.parent
         path = item.properties.get("path")
 
-        path_entity = publisher.tank.context_from_path(path).entity
-        isSequence = 'sequence' if 'images' in self.get_publish_type(settings, item)[1] else 'scene'
-        entity_type = item.context.entity.get('type')
+        publish_info = self._get_publish_path(settings, item)
+        publish_name = publish_info[0]
+        publish_path = publish_info[1]
 
-        if not cmp(path_entity, item.context.entity):
-            self.logger.info('@@@ R8S Custom @@@ This files already in right place, no need to copying.')
-        else:
-            if 'Shot' in entity_type:
-                standalone_template = publisher.sgtk.templates["shot_standalone_{}_location".format(isSequence)]
-            elif 'Asset' in entity_type:
-                standalone_template = publisher.sgtk.templates["asset_standalone_{}_location".format(isSequence)]
-          
-            
-            fields = item.context.as_template_fields(standalone_template)
-            fields['extension'] = publisher.util.get_file_path_components(path)['extension']
-            fields['name'] = settings.get('Export Name').value
-            fields['sna_engine'] = self.get_publish_type(settings, item)[1]
-            fields['version'] = int(settings.get('Publish Version').value)
+        publish_folder = os.path.dirname(publish_path)
+        ensure_folder_exists(publish_folder)
 
-            publish_out = standalone_template.apply_fields(fields)
+        try:
+            match = re.search(r'%(\d+)d', path)
+            if match:
+                for in_frame in glob.glob(path.replace(match.group(0), '*')):
+                    out_frame = publish_path % int(in_frame.replace(path.split(match.group(0))[0], '').split(".")[0])
+                    if not os.path.exists(out_frame):
+                        copy_file(in_frame, out_frame)
+            else:
+                copy_file(path, publish_path)
 
-            publish_folder = os.path.dirname(publish_out)
-            ensure_folder_exists(publish_folder)
-
-            try:
-                match = re.search(r'%(\d+)d', path)
-                if match:
-                    for in_frame in glob.glob(path.replace(match.group(0), '*')):
-                        out_frame = publish_out % int(in_frame.replace(path.split(match.group(0))[0], '').split(".")[0])
-                        if not os.path.exists(out_frame):
-                            copy_file(in_frame, out_frame)
-                else:
-                    copy_file(path, publish_out)
-
-            except Exception:
-                raise Exception(
-                    "Failed to copy sequence from '%s' to '%s'.\n%s" %
-                    (path, publish_folder, traceback.format_exc())
-                )
-            
-            self.logger.debug(
-                "@@@ R8S Custom @@@ This files needs copying "
-                "from '%s' to '%s' before publish." % (path, publish_out))
-            
-            item.properties['path'] = publish_out
-
+        except Exception:
+            raise Exception(
+                "Failed to copy sequence from '%s' to '%s'.\n%s" %
+                (path, publish_folder, traceback.format_exc())
+            )
+        
+        self.logger.debug(
+            "@@@ R8S Custom @@@ This files needs copying "
+            "from '%s' to '%s' before publish." % (path, publish_path))
+        
+        item.properties['path'] = publish_path
+        
         # ---- determine the information required to publish
 
         # We allow the information to be pre-populated by the collector or a
         # base class plugin. They may have more information than is available
         # here such as custom type or template settings.
 
-        publish_type = self.get_publish_type(settings, item)[0]
-        publish_name = self.get_publish_name(settings, item)
-        publish_version = self.get_publish_version(settings, item)
         publish_path = self.get_publish_path(settings, item)
+        publish_type = self.get_publish_type(settings, item)[0]
+        publish_version = self.get_publish_version(settings, item)
         publish_dependencies = self.get_publish_dependencies(settings, item)
         publish_user = self.get_publish_user(settings, item)
 
@@ -1024,3 +1007,38 @@ class BasicFilePublishPlugin(HookBaseClass):
         self.logger.info("File saved as: %s" % (next_version_path,))
 
         return next_version_path
+
+    def _get_publish_path(self, settings, item):
+        
+        publisher = self.parent
+        path = item.properties.get("path")
+
+        path_entity = publisher.tank.context_from_path(path).entity
+        isSequence = ('sequence', True) if 'images' in self.get_publish_type(settings, item)[1] else ('scene', False)
+        entity_type = item.context.entity.get('type')
+
+        publish_path = path
+
+        if not cmp(path_entity, item.context.entity):
+            self.logger.info('@@@ R8S Custom @@@ This files already in right place, no need to copying.')
+        else:
+            if 'Shot' in entity_type:
+                standalone_template = publisher.sgtk.templates["shot_standalone_{}_location".format(isSequence[0])]
+            elif 'Asset' in entity_type:
+                standalone_template = publisher.sgtk.templates["asset_standalone_{}_location".format(isSequence[0])]
+          
+            
+            fields = item.context.as_template_fields(standalone_template)
+            fields['extension'] = publisher.util.get_file_path_components(path)['extension']
+            fields['name'] = settings.get('Export Name').value
+            fields['sna_engine'] = self.get_publish_type(settings, item)[1]
+            fields['version'] = int(settings.get('Publish Version').value)
+
+            publish_path = standalone_template.apply_fields(fields)
+
+        publish_name = publisher.util.get_publish_name(
+            publish_path,
+            sequence=isSequence[1]
+        )
+
+        return publish_name, publish_path
