@@ -13,9 +13,7 @@ import sys
 import sgtk
 import traceback
 
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "python"))
-import fileseq
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "opt", "tk-local", "lib", "site-packages"))
 
 logger = sgtk.platform.get_logger(__name__)
 
