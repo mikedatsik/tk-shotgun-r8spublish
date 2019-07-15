@@ -288,7 +288,7 @@ class BasicFilePublishPlugin(HookBaseClass):
         accept() method. Strings can contain glob patters such as *, for example
         ["maya.*", "file.maya"]
         """
-        return ["file.*"]
+        return ["file.*", "folder.texture"]
 
     ############################################################################
     # standard publish plugin methods
@@ -320,9 +320,12 @@ class BasicFilePublishPlugin(HookBaseClass):
         """
 
         path = item.properties.path
+        tex_variation = item.properties.get("tex_variation")
 
         publish_version = self.get_publish_version(settings, item)
         settings.get('Publish Version').value = publish_version
+        if tex_variation:
+            settings.get('Export Name').value = tex_variation
 
         # log the accepted file and display a button to reveal it in the fs
         self.logger.info(
@@ -353,7 +356,7 @@ class BasicFilePublishPlugin(HookBaseClass):
 
         publisher = self.parent
         path = item.properties.get("path")
-        
+
         # ---- determine the information required to validate
 
         # We allow the information to be pre-populated by the collector or a
@@ -363,9 +366,11 @@ class BasicFilePublishPlugin(HookBaseClass):
         publish_info = self._get_publish_path(settings, item)
         publish_name = publish_info[0]
         publish_path = publish_info[1]
-
+        
+        self.logger.debug(
+            "!!!!!!!!!!!!!!!!!!!!!!!: %s" % (pprint.pformat(publish_info),))
         # ---- check for conflicting publishes of this path with a status
-
+        
         # Note the name, context, and path *must* match the values supplied to
         # register_publish in the publish phase in order for this to return an
         # accurate list of previous publishes of this file.
@@ -445,21 +450,52 @@ class BasicFilePublishPlugin(HookBaseClass):
         publish_folder = os.path.dirname(publish_path)
         ensure_folder_exists(publish_folder)
 
-        try:
-            match = re.search(r'%(\d+)d', path)
-            if match:
-                for in_frame in glob.glob(path.replace(match.group(0), '*')):
-                    out_frame = publish_path % int(in_frame.replace(path.split(match.group(0))[0], '').split(".")[0])
-                    if not os.path.exists(out_frame):
-                        copy_file(in_frame, out_frame)
-            else:
-                copy_file(path, publish_path)
+        if 'Texture Folder' in self.get_publish_type(settings, item)[0]:
+            try:
+                udims = publisher.util.get_frame_sequences(path)
+                if udims:
+                    for (inFile, seq) in udims:
+                        match = re.search(r'%(\d+)d', inFile)
+                        if match:
+                            glob_path = inFile.split(match.group(0))
+                        else:
+                            glob_path = os.path.splitext(inFile)
 
-        except Exception:
-            raise Exception(
-                "Failed to copy sequence from '%s' to '%s'.\n%s" %
-                (path, publish_folder, traceback.format_exc())
-            )
+                        glob_path_m = glob_path[0][:-1] if "_" or "." in glob_path[0][-1] else glob_path[0]
+
+                        match_texturename = re.search(r'([^_|.]+)$', glob_path_m)
+                        
+                        if match_texturename:
+                            for in_frame in glob.glob(inFile.replace(match.group(0), '*')):
+                                mt = in_frame.replace(glob_path[0], "")
+                                out_frame = os.path.splitext(publish_path)[0]
+                                out_frame = "%s_%s.%s" % (out_frame, match_texturename.group(0), mt)
+
+                                if not os.path.exists(out_frame):
+                                    copy_file(in_frame, out_frame)
+                                
+                publish_path = os.path.dirname(publish_path)
+            except Exception:
+                raise Exception(
+                    "Failed to copy sequence from '%s' to '%s'.\n%s" %
+                    (path, publish_folder, traceback.format_exc())
+                )                
+        else:
+            try:
+                match = re.search(r'%(\d+)d', path)
+                if match:
+                    for in_frame in glob.glob(path.replace(match.group(0), '*')):
+                        out_frame = publish_path % int(in_frame.replace(path.split(match.group(0))[0], '').split(".")[0])
+                        if not os.path.exists(out_frame):
+                            copy_file(in_frame, out_frame)
+                else:
+                    copy_file(path, publish_path)
+
+            except Exception:
+                raise Exception(
+                    "Failed to copy sequence from '%s' to '%s'.\n%s" %
+                    (path, publish_folder, traceback.format_exc())
+                )
         
         self.logger.debug(
             "@@@ R8S Custom @@@ This files needs copying "
@@ -626,7 +662,7 @@ class BasicFilePublishPlugin(HookBaseClass):
             publish_type = "%s File" % extension.capitalize()
         else:
             # no extension, assume it is a folder
-            publish_type = "Folder"
+            publish_type = "Texture Folder"
 
         return publish_type, publish_engine
 
@@ -1014,7 +1050,14 @@ class BasicFilePublishPlugin(HookBaseClass):
         path = item.properties.get("path")
 
         path_entity = publisher.tank.context_from_path(path).entity
-        isSequence = ('sequence', True) if 'images' in self.get_publish_type(settings, item)[1] else ('scene', False)
+
+        if 'images' in self.get_publish_type(settings, item)[1]:
+            isSequence = ('sequence', True)
+        elif 'Texture Folder' in self.get_publish_type(settings, item)[0]:
+            isSequence = ('texturefolder', False)
+        else:
+            isSequence =('scene', False)
+
         entity_type = item.context.entity.get('type')
 
         publish_path = path
@@ -1022,14 +1065,11 @@ class BasicFilePublishPlugin(HookBaseClass):
         if not cmp(path_entity, item.context.entity):
             self.logger.info('@@@ R8S Custom @@@ This files already in right place, no need to copying.')
         else:
-            if 'Shot' in entity_type:
-                standalone_template = publisher.sgtk.templates["shot_standalone_{}_location".format(isSequence[0])]
-            elif 'Asset' in entity_type:
-                standalone_template = publisher.sgtk.templates["asset_standalone_{}_location".format(isSequence[0])]
-          
-            
+            standalone_template = publisher.sgtk.templates["{}_standalone_{}_location".format(entity_type.lower(), isSequence[0])]
+
             fields = item.context.as_template_fields(standalone_template)
-            fields['extension'] = publisher.util.get_file_path_components(path)['extension']
+            if 'Texture Folder' not in self.get_publish_type(settings, item)[0]:
+                fields['extension'] = publisher.util.get_file_path_components(path)['extension']
             fields['name'] = settings.get('Export Name').value
             fields['sna_engine'] = self.get_publish_type(settings, item)[1]
             fields['version'] = int(settings.get('Publish Version').value)

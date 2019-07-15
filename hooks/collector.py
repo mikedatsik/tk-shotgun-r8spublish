@@ -10,6 +10,7 @@
 
 import mimetypes
 import os
+import glob
 import sgtk
 
 HookBaseClass = sgtk.get_hook_baseclass()
@@ -325,7 +326,33 @@ class BasicSceneCollector(HookBaseClass):
             file_items.append(file_item)
 
         if not file_items:
-            self.logger.warn("No image sequences found in: %s" % (folder,))
+            folders = glob.glob(os.path.join(folder, "*"))
+            for i, fld in enumerate(folders):
+
+                img_sequences = publisher.util.get_frame_sequences(
+                    fld,
+                    self._get_image_extensions()
+                )
+
+                if img_sequences:
+
+                    file_item = parent_item.create_item(
+                        "folder.texture",
+                        "Texture Folder",
+                        os.path.basename(fld)
+                    )
+                    icon_name = "texture_folder.png"
+                    icon_path = self._get_icon_path(icon_name)
+                    file_item.set_icon_from_path(icon_path)
+
+                    file_item.properties["path"] = fld
+                    
+                    file_item.properties["tex_variation"] = "var%03d" % i
+                    
+                    file_items.append(file_item)
+            
+            if not file_items:
+                self.logger.warn("No image sequences found in: %s" % (folder,))
 
         return file_items
 
