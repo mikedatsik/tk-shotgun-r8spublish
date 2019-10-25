@@ -140,6 +140,16 @@ class BasicSceneCollector(HookBaseClass):
                     "icon": self._get_icon_path("texture.png"),
                     "item_type": "file.texture",
                 },
+                "PDF": {
+                    "extensions": ["pdf"],
+                    "icon": self._get_icon_path("file.png"),
+                    "item_type": "file.image",
+                },
+                "OpenVDB Cache": {
+                    "extensions": ["vdb"],
+                    "icon": self._get_icon_path("vdb.png"),
+                    "item_type": "file.vdb",
+                },
             }
 
         return self._common_file_info
@@ -292,7 +302,10 @@ class BasicSceneCollector(HookBaseClass):
             # type info to account for this.
             type_display = "%s Sequence" % (type_display,)
             item_type = "%s.%s" % (item_type, "sequence")
-            icon_name = "image_sequence.png"
+            if "OpenVDB Cache" in type_display:
+                icon_name = "vdb.png"
+            else:
+                icon_name = "image_sequence.png"
 
             # get the first frame of the sequence. we'll use this for the
             # thumbnail and to generate the display name
@@ -320,6 +333,9 @@ class BasicSceneCollector(HookBaseClass):
             # properties for the plugins to use for processing.
             file_item.properties["path"] = image_seq_path
             file_item.properties["sequence_paths"] = img_seq_files
+            if "OpenVDB Cache" in type_display:
+                file_item.properties["publish_type"] = "OpenVDB Cache"
+                file_item.thumbnail_enabled = True
 
             self.logger.info("Collected file: %s" % (image_seq_path,))
 
@@ -491,7 +507,8 @@ class BasicSceneCollector(HookBaseClass):
             image_file_types = [
                 "Photoshop Image",
                 "Rendered Image",
-                "Texture Image"
+                "Texture Image",
+                "OpenVDB Cache"
             ]
             image_extensions = set()
 

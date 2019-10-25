@@ -3,6 +3,7 @@
 # Packages
 *.egg
 *.egg-info
+Thumbs.db
 dist
 build
 eggs

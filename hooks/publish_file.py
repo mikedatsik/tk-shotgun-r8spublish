@@ -259,6 +259,8 @@ class BasicFilePublishPlugin(HookBaseClass):
                     ["Texture", "elements", "tiff", "tx", "tga", "dds"],
                     ["Image", "images", "jpeg", "jpg", "png"],
                     ["Movie", "elements", "mov", "mp4"],
+                    ["PDF", "pdf"],
+                    ["OpenVDB Cache", "vdb"]
                 ],
                 "description": (
                     "List of file types to include. Each entry in the list "
